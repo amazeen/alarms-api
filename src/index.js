@@ -1,164 +1,119 @@
-/***
- * Implementare richiesta utenti admin all'avvio
- * dovrà richiedere ogni tot la lista aggiornata
- *
- *
- *
- *
- */
+require("dotenv").config()
 
-require("dotenv").config({ path: __dirname + "/../.env" });
 const amqp = require("amqplib");
 const Vonage = require("@vonage/server-sdk");
 
-const url = process.env.RABBITMQ_URL || "amqp://localhost";
-const exchange = "admin";
-const timeout = 5;
+const rabbitMqUrl = process.env.RABBITMQ_URL || "amqp://localhost";
+const rabbitMqAdminsExchange = "admins";
+const rabbitMqParametersExchange = "parameters";
+const rabbitMqReconnectionTimeout = 5;
+const rabbitMqUpdateAdminListTimeout = 60 * 5; // five minutes
 
-let connection = null;
-let channel = null;
+let adminList = []
 
-const init = async (queueType) => {
-  connection = null;
-  channel = null;
-
-  try {
-    connection = await amqp.connect(url);
-
-    channel = await connection.createChannel();
-
-    if (queueType === "admin:response") {
-      const queue = "admin:response";
-      await channel.assertQueue(queue);
-      await channel.assertExchange(exchange, "fanout", { durable: false });
-    }
-  } catch (err) {
-    console.warn(
-      "Error connecting to rabbitmq service, retriyng in %s seconds",
-      timeout
-    );
-    setTimeout(init, timeout * 1000);
-  }
-};
-
-const sendAdminRequest = async () => {
-
-  await init();
-
-  if (!channel) return;
-
-  const queue = "admin:request";
-  await channel.assertQueue(queue);
-
-  const msgToSend = "type: admin:request-list";
-
-  try {
-    await channel.sendToQueue(queue, Buffer.from(msgToSend));
-    console.log("MESSAGE SENT");
-  } catch (err) {
-    return err;
-  }
-};
-setInterval(async () => {
-  sendAdminRequest();
-  //console.log(await sendAdminRequest());
-}, 1000 /** 60 * 5 */ /*5 Minutes*/);
-
-/**
- *
- * Receive Admin Response
- *
- */
-let responseData;
-const receiveAdminResponse = async (queue) => {
- 
-  await init();
-
-  if(!channel) return;
-
-  // const queue = "admin:response";
-  // await channel.assertQueue(queue);
-
-  await channel.consume(queue, (msg) => {
-    let { type, data } = JSON.parse(msg.content);
-
-      try{
-        switch (type) {
-          case "admin:response-list":
-            responseData = data;
-            console.log(responseData);
-            break;
-          case "admin:updated":
-            temp = data;
-            responseData = responseData.filter((admin) => {
-              return admin.username !== temp.username
-            });
-            break;
-          default:
-            console.log("No Type match founded")
-            break;
-        }
-      }catch(err){
-        return err;
-      }
-
-      console.log("Message Received");
-  }, {
-    noAck: true
-  })
-}
-const queue = "admin:response"
-receiveAdminResponse(queue);
-
-/**
- *
- * Receive Threshold Reached
- *
- */
 const vonage = new Vonage({
   apiKey: process.env.VONAGE_API_KEY,
   apiSecret: process.env.VONAGE_API_SECRET,
 });
 
-const from = process.env.VONAGE_BRAND_NAME;
-const to = process.env.TO_NUMBER;
+const initRabbitMq = async () => {
 
-const opts = {
-  type: "unicode",
-};
-const receiveThresholdReached = async () => {
-  if(!channel) return;
+  let interval = null
 
-  await channel.consume(
-    queue,
-    (msg) => {
-      const { type, text } = JSON.parse(msg.content);
-      try {
-        if (type === "reading:threshold-reached") {
-          responseData.forEach(admin => {
-            vonage.message.sendSms(from, admin.number, text, (err, resData) => {
-              if (err) {
-                console.log(err);
-              } else {
-                if (resData.messages[0]["status"] === "0") {
-                  console.log("Message sent successfully.");
-                } else {
-                  console.log(
-                    `Message failed with error: ${resData.messages[0]["error-text"]}`
-                  );
-                }
-              }
-            });
+  try {
+    const connection = await amqp.connect(rabbitMqUrl);
+    const channel = await connection.createChannel();
 
-          })
-        }
-      } catch (err) {
-        console.log(err);
-      }
-    },
-    {
-      noAck: true,
+    channel.assertExchange(rabbitMqAdminsExchange, 'fanout', { durable: false })
+    channel.assertExchange(rabbitMqParametersExchange, 'fanout', { durable: false })
+
+    const {queue} = channel.assertQueue('', { durable: false, exclusive: true })
+
+    channel.bindQueue(queue, rabbitMqAdminsExchange, '')
+    channel.bindQueue(queue, rabbitMqParametersExchange, '')
+    channel.consume(queue, onRabbitMqMessageReceived, { noAck: true })  
+
+    const sendAdminListRequest = async () => {
+      if(!channel) return
+
+      const message = JSON.stringify({type: 'admin:request-list'})
+      await channel.publish(rabbitMqAdminsExchange, '', Buffer.from(message))
+      console.log('sent admin:request-list')
     }
-  );
+
+    sendAdminListRequest()
+    interval = setInterval(sendAdminListRequest, rabbitMqUpdateAdminListTimeout * 1000);
+  } 
+  catch (err) {
+    console.warn(
+      "Error connecting to rabbitmq service, retrying in %s seconds",
+      rabbitMqReconnectionTimeout
+    );
+    clearInterval(interval)
+    setTimeout(initRabbitMq, rabbitMqReconnectionTimeout * 1000);
+  }
+};
+
+const onRabbitMqMessageReceived = async (msg) => {
+
+  try{
+    const { type, data } = JSON.parse(msg.content);
+
+    switch (type) {
+
+      case "admin:list":
+        adminList = data;
+        console.log(adminList);
+        break;
+
+      case "admin:updated":
+        adminList = adminList.filter(admin => admin.username !== data.username)
+        adminList.push(data)
+        console.log(adminList)
+        break;
+
+      case "parameter:threshold-reached":
+        const text = `Parameter ${data.type} of silo ${data.silo} (area ${data.area}) has reached threshold and is now at ${data.value}`
+        adminList.forEach(admin => {
+          if(admin.phone) sendSMS(admin.phone, text)
+          if(admin.email) sendMail(admin.email, text)
+        })
+        break;
+
+      case "admin:request-list":
+        break;
+
+      default:
+        console.log("Received unknown message")
+        break;
+    }
+  }
+  catch(err){
+
+    console.log(err)
+    return err;
+  }
+
 }
-receiveThresholdReached();
+
+const sendSMS = (to, text) => {
+  vonage.message.sendSms("Sioux Silos", to, text, (err, resData) => {
+    if (err) {
+      console.log(err);
+    } else {
+      if (resData.messages[0]["status"] === "0") {
+        console.log("SMS Message sent successfully.");
+      } else {
+        console.log(
+          `SMS Message failed with error: ${resData.messages[0]["error-text"]}`
+        );
+      }
+    }
+  });
+}
+
+const sendMail = (to, text) => {
+  //TODO: Implement
+}
+
+initRabbitMq()
