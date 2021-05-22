@@ -1,0 +1,32 @@
+{
+  "name": "alarms-api",
+  "version": "1.0.0",
+  "description": "Api used to send alarms to the user",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "nodemon src/index.js",
+    "start": "node src/index.js",
+    "test": "mocha src/tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sugo-code/alarms-api.git"
+  },
+  "author": "Riccardo Donadel, Andrea Zanetti",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/sugo-code/alarms-api/issues"
+  },
+  "homepage": "https://github.com/sugo-code/alarms-api#readme",
+  "devDependencies": {
+    "chai": "^4.3.4",
+    "mocha": "^8.4.0",
+    "nodemon": "^2.0.7"
+  },
+  "dependencies": {
+    "@vonage/server-sdk": "^2.10.8",
+    "amqplib": "^0.7.1",
+    "dotenv": "^9.0.2",
+    "socket.io": "^4.1.1"
+  }
+}
