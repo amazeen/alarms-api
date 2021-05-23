@@ -2,6 +2,7 @@ version: "3.9"
 services:
   alarms-api:
     build: .
+    restart: unless-stopped
     environment: 
       RABBITMQ_URL:      ${RABBITMQ_URL:?RABBITMQ_URL is missing}
       VONAGE_API_KEY:    ${VONAGE_API_KEY:?VONAGE_API_KEY is missing}
