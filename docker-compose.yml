@@ -1,0 +1,10 @@
+version: "3.9"
+services:
+  alarms-api:
+    build: .
+    environment: 
+      RABBITMQ_URL:      ${RABBITMQ_URL:?RABBITMQ_URL is missing}
+      VONAGE_API_KEY:    ${VONAGE_API_KEY:?VONAGE_API_KEY is missing}
+      VONAGE_API_SECRET: ${VONAGE_API_SECRET:?VONAGE_API_SECRET is missing}
+
+
