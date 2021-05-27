@@ -7,5 +7,10 @@ services:
       RABBITMQ_URL:      ${RABBITMQ_URL:?RABBITMQ_URL is missing}
       VONAGE_API_KEY:    ${VONAGE_API_KEY:?VONAGE_API_KEY is missing}
       VONAGE_API_SECRET: ${VONAGE_API_SECRET:?VONAGE_API_SECRET is missing}
-
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: ${LOG_REGION:?LOG_REGION is missing}
+        awslogs-group:  ${LOG_GROUP:?LOG_GROUP is missing}
+        mode:           non-blocking
 
